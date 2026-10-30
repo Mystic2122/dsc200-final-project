@@ -23,8 +23,9 @@ DEFAULT_WEIGHTS = {"quality": 1.0, "popularity": 0.5, "price": 0.0,
 
 @dataclass
 class Preferences:
+    state: str | None = None            # e.g. "PA"
+    city: str | None = None
     metro: str | None = None            # e.g. "Philadelphia, PA"
-    city: str | None = None             # town within the metro
     min_price: int | None = None        # 1-4 ($ to $$$$); restaurants with unknown price are kept
     max_price: int | None = None
     required: list[str] = field(default_factory=list)  # boolean columns that must be True
@@ -110,23 +111,14 @@ class Recommender:
         index = joblib.load(TEXT_INDEX) if TEXT_INDEX.exists() else None
         return cls(biz, index)
 
-    def zip_location(self, postal_code: str) -> tuple[float, float] | None:
-        """Approximate a ZIP / postal code's location as the median of restaurants in it."""
-        code = postal_code.strip().upper().replace(" ", "")
-        codes = self.biz["postal_code"].str.upper().str.replace(" ", "")
-        match = self.biz[codes == code]
-        if match.empty and code[:1].isalpha():  # Canadian code: fall back to its area (first 3 chars)
-            match = self.biz[codes.str[:3] == code[:3]]
-        if match.empty:
-            return None
-        return float(match["latitude"].median()), float(match["longitude"].median())
-
     # --- step 1: hard filters ---
     def filter(self, p: Preferences) -> pd.DataFrame:
         df = self.biz
         mask = pd.Series(True, index=df.index)
         if not p.include_closed:
             mask &= df["is_open"] == 1
+        if p.state:
+            mask &= df["state"] == p.state
         if p.metro:
             mask &= df["metro"] == p.metro
         if p.city:

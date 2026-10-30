@@ -44,12 +44,12 @@ Tucson, Reno, Edmonton, Santa Barbara, Boise, Wilmington), not the whole US.
 
 ## How recommendations work (hybrid)
 
-1. **Hard filters**: metro area/town, price range, required attributes (parking, takeout, ...), open at a given time, minimum review count, distance from a ZIP code.
+1. **Hard filters**: state and city, price range, required attributes (parking, takeout, ...), open at a given time, minimum review count (and an optional distance radius in the API; not in the UI).
 2. **Weighted score**: each feature is scaled to [0, 1] and combined with user-set weights:
    - *quality*: Bayesian-adjusted rating, which pulls restaurants with few reviews toward the global mean
    - *popularity*: log review count
    - *price*: cheaper scores higher
-   - *distance*: closeness to the chosen ZIP code
+   - *distance*: closeness to a location (API only; the UI has no location input)
    - *text*: TF-IDF cosine similarity between the user's "craving" text and/or liked restaurants and each restaurant's reviews
 3. **Group mode** (`Recommender.recommend_group`): everyone's filters must pass; scores are combined by mean or least misery (min).
 
