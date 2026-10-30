@@ -1,0 +1,22 @@
+# Yelp data (Terms of Use forbid redistribution)
+data/
+*.zip
+*.tar
+*.json.gz
+*.parquet
+*.duckdb
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local Claude notes
+CLAUDE.md
