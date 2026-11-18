@@ -45,7 +45,7 @@ Tucson, Reno, Edmonton, Santa Barbara, Boise, Wilmington), not the whole US.
 
 ## How recommendations work (hybrid)
 
-1. **Hard filters**: state and city or whole metro area (towns with < 5 open restaurants are only reachable through their metro area), price range, required attributes (parking, takeout, ...), open at a given time, minimum review count (and an optional distance radius in the API; not in the UI).
+1. **Hard filters**: state and area (a town with >= 10 open restaurants plus nearby smaller towns, see `areas.py`) or a whole metro area, price range, required attributes (parking, takeout, ...), open at a given time, minimum review count (and an optional distance radius in the API; not in the UI).
 2. **Weighted score**: each feature is scaled to [0, 1] and combined with user-set weights:
    - *quality*: Bayesian-adjusted rating, which pulls restaurants with few reviews toward the global mean
    - *popularity*: log review count
@@ -70,5 +70,6 @@ whether the hidden 4+ star restaurants show up in the top 10. The summary is sav
 | `restaurant_rec/preprocess.py` | Filters to restaurants; DuckDB streams the 5 GB review file to Parquet |
 | `restaurant_rec/text_index.py` | Builds the per-restaurant TF-IDF matrix |
 | `restaurant_rec/recommender.py` | Filtering, scoring, group mode |
+| `restaurant_rec/areas.py` | Groups small towns into areas of >= 10 open restaurants for the City dropdown |
 | `restaurant_rec/evaluate.py` | Offline accuracy test (hit rate / precision / recall @ k) |
 | `app.py` | Streamlit UI |

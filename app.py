@@ -6,6 +6,7 @@ from urllib.parse import quote_plus
 import pydeck as pdk
 import streamlit as st
 
+from restaurant_rec.areas import MIN_AREA_SIZE, build_areas
 from restaurant_rec.paths import BUSINESSES_PARQUET
 from restaurant_rec.recommender import DAYS, Preferences, Recommender, active_weights
 
@@ -34,8 +35,14 @@ def get_recommender():
     return Recommender.load()
 
 
+@st.cache_resource(show_spinner=False)
+def get_areas():
+    return build_areas(get_recommender().biz)
+
+
 rec = get_recommender()
 biz = rec.biz
+areas = get_areas()
 
 FEATURES = {
     "Parking": "parking_any", "Takeout": "takeout", "Delivery": "delivery",
@@ -55,7 +62,6 @@ STATE_NAMES = {
     "NJ": "New Jersey", "NV": "Nevada", "PA": "Pennsylvania", "TN": "Tennessee",
 }
 MIN_REVIEWS = {"Any": 0, "10+": 10, "50+": 50, "200+": 200}
-MIN_TOWN_SIZE = 5  # towns with fewer open restaurants are only offered via their metro area
 
 
 def md_escape(text):
@@ -70,23 +76,24 @@ def short_categories(categories, n=4):
 # ---------- sidebar: filters ----------
 with st.sidebar:
     st.subheader("Location", anchor=False)
-    # Only offer places with open restaurants: the recommender drops ones Yelp marks closed,
-    # and 61 small towns have nothing else.
+    # Only open restaurants count: the recommender drops ones Yelp marks closed.
     open_biz = biz[biz["is_open"] == 1]
-    states = sorted(open_biz["state"].unique(), key=STATE_NAMES.get)
+    states = sorted(areas["state"].unique(), key=STATE_NAMES.get)
     state = st.selectbox("State", states, index=states.index("PA"), format_func=STATE_NAMES.get)
     in_state = biz[biz["state"] == state]
-    open_in_state = open_biz[open_biz["state"] == state]
-    # Options: one "<metro> area" per metro (covers every town, incl. the small ones), then towns with
-    # at least MIN_TOWN_SIZE open restaurants (biggest first, rest A-Z). Smaller towns are only
-    # reachable through their metro area, since a 2-restaurant town gives meaningless rankings.
-    metro_counts = open_in_state["metro"].value_counts()
-    areas = {f"{m.split(',')[0]} area (all towns)": m for m in metro_counts.index[metro_counts >= MIN_TOWN_SIZE]}
-    city_counts = open_in_state["city"].value_counts()
-    city_counts = city_counts[city_counts >= MIN_TOWN_SIZE]
-    towns = [city_counts.index[0]] + sorted(city_counts.index[1:])
-    choice = st.selectbox("City", list(areas) + towns, index=len(areas))  # default: biggest town
-    place_kind, place = ("metro", areas[choice]) if choice in areas else ("city", choice)
+    # Options: "<metro> area" per metro (every town in it), then areas = towns with >= MIN_AREA_SIZE open
+    # restaurants, each including nearby smaller towns (see areas.py); biggest first, rest A-Z.
+    metro_counts = open_biz.loc[open_biz["state"] == state, "metro"].value_counts()
+    metros = {f"{m.split(',')[0]} area": m for m in metro_counts.index[metro_counts >= MIN_AREA_SIZE]}
+    state_areas = areas[areas["state"] == state]
+    area_towns = state_areas.groupby("area")["city"].apply(list)
+    by_size = state_areas.groupby("area")["area_size"].first().sort_values(ascending=False).index
+    towns = [by_size[0]] + sorted(by_size[1:])
+    choice = st.selectbox("City", list(metros) + towns, index=len(metros))  # default: biggest town
+    if choice in metros:
+        local = in_state[in_state["metro"] == metros[choice]]
+    else:
+        local = in_state[in_state["city"].isin(area_towns[choice])]
 
     st.subheader("Filters", anchor=False)
     k = st.segmented_control("Results to show", [5, 10, 25, 50], default=10, required=True)
@@ -109,7 +116,6 @@ with st.sidebar:
 st.title("Restaurant Recommender", anchor=False)
 query = st.text_input("What are you craving?", placeholder="e.g. spicy ramen, cozy brunch, cheap tacos")
 
-local = in_state[in_state[place_kind] == place]
 local = local.sort_values("n_reviews", ascending=False)
 labels = dict(zip(local["business_id"], local["name"] + " — " + local["address"].fillna("") + ", " + local["city"]))
 liked = st.multiselect("Places you already like (optional)", list(labels), format_func=labels.get,
@@ -117,8 +123,8 @@ liked = st.multiselect("Places you already like (optional)", list(labels), forma
 
 prefs = Preferences(
     state=state,
-    city=place if place_kind == "city" else None,
-    metro=place if place_kind == "metro" else None,
+    cities=None if choice in metros else area_towns[choice],
+    metro=metros.get(choice),
     min_price=PRICES.index(price_lo) + 1,
     max_price=PRICES.index(price_hi) + 1,
     required=[FEATURES[f] for f in required],
@@ -137,7 +143,9 @@ if results.empty:
     st.stop()
 
 used = {name: w for name, w in active_weights(prefs).items() if w > 0}
-st.caption(f"Top {len(results)} matches · scored on " + ", ".join(FACTORS[n].lower() for n in used))
+nearby = [] if choice in metros else sorted(t for t in area_towns[choice] if t != choice)
+st.caption(f"Top {len(results)} matches · scored on " + ", ".join(FACTORS[n].lower() for n in used)
+           + (f" · {choice} area includes nearby {', '.join(nearby)}" if nearby else ""))
 
 results = results.assign(rank=range(1, len(results) + 1))
 results["price"] = [PRICES[int(p) - 1] if p == p else "price n/a" for p in results["price_range"]]

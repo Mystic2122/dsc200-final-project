@@ -25,6 +25,7 @@ DEFAULT_WEIGHTS = {"quality": 1.0, "popularity": 0.5, "price": 0.0,
 class Preferences:
     state: str | None = None            # e.g. "PA"
     city: str | None = None
+    cities: list[str] | None = None     # any of these towns (an area from areas.build_areas)
     metro: str | None = None            # e.g. "Philadelphia, PA"
     min_price: int | None = None        # 1-4 ($ to $$$$); restaurants with unknown price are kept
     max_price: int | None = None
@@ -123,6 +124,8 @@ class Recommender:
             mask &= df["metro"] == p.metro
         if p.city:
             mask &= df["city"] == p.city
+        if p.cities:
+            mask &= df["city"].isin(p.cities)
         price = df["price_range"]
         if p.min_price:
             mask &= price.isna() | (price >= p.min_price)
