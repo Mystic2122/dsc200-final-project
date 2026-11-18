@@ -28,6 +28,7 @@ data/raw/yelp_academic_dataset_review.json
 python -m restaurant_rec.preprocess      # JSON -> cleaned data/processed/*.parquet (restaurants only), ~30 s
 python -m restaurant_rec.text_index      # TF-IDF index over each restaurant's reviews, ~2 min
 streamlit run app.py                     # open the UI
+python -m restaurant_rec.evaluate        # accuracy test on held-out Yelp users, ~1 min
 ```
 
 The dataset covers 12 metro areas (Philadelphia, Tampa, Nashville, Indianapolis, St. Louis, New Orleans,
@@ -44,7 +45,7 @@ Tucson, Reno, Edmonton, Santa Barbara, Boise, Wilmington), not the whole US.
 
 ## How recommendations work (hybrid)
 
-1. **Hard filters**: state and city, price range, required attributes (parking, takeout, ...), open at a given time, minimum review count (and an optional distance radius in the API; not in the UI).
+1. **Hard filters**: state and city or whole metro area (towns with < 5 open restaurants are only reachable through their metro area), price range, required attributes (parking, takeout, ...), open at a given time, minimum review count (and an optional distance radius in the API; not in the UI).
 2. **Weighted score**: each feature is scaled to [0, 1] and combined with user-set weights:
    - *quality*: Bayesian-adjusted rating, which pulls restaurants with few reviews toward the global mean
    - *popularity*: log review count
@@ -52,6 +53,13 @@ Tucson, Reno, Edmonton, Santa Barbara, Boise, Wilmington), not the whole US.
    - *distance*: closeness to a location (API only; the UI has no location input)
    - *text*: TF-IDF cosine similarity between the user's "craving" text and/or liked restaurants and each restaurant's reviews
 3. **Group mode** (`Recommender.recommend_group`): everyone's filters must pass; scores are combined by mean or least misery (min).
+
+## Evaluation
+
+`python -m restaurant_rec.evaluate` replays real Yelp users: for 2,000 random users with >= 10 reviews in one
+metro, their oldest 80% of reviews are the past (4+ star places become "places I like") and their newest 20%
+are hidden. Each scoring setup ranks every restaurant operating in the user's metro at that time, and we check
+whether the hidden 4+ star restaurants show up in the top 10. The summary is saved to `results/evaluation.csv`.
 
 ## Layout
 
@@ -62,4 +70,5 @@ Tucson, Reno, Edmonton, Santa Barbara, Boise, Wilmington), not the whole US.
 | `restaurant_rec/preprocess.py` | Filters to restaurants; DuckDB streams the 5 GB review file to Parquet |
 | `restaurant_rec/text_index.py` | Builds the per-restaurant TF-IDF matrix |
 | `restaurant_rec/recommender.py` | Filtering, scoring, group mode |
+| `restaurant_rec/evaluate.py` | Offline accuracy test (hit rate / precision / recall @ k) |
 | `app.py` | Streamlit UI |

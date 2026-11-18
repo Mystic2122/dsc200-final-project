@@ -55,6 +55,7 @@ STATE_NAMES = {
     "NJ": "New Jersey", "NV": "Nevada", "PA": "Pennsylvania", "TN": "Tennessee",
 }
 MIN_REVIEWS = {"Any": 0, "10+": 10, "50+": 50, "200+": 200}
+MIN_TOWN_SIZE = 5  # towns with fewer open restaurants are only offered via their metro area
 
 
 def md_escape(text):
@@ -69,12 +70,23 @@ def short_categories(categories, n=4):
 # ---------- sidebar: filters ----------
 with st.sidebar:
     st.subheader("Location", anchor=False)
-    states = sorted(biz["state"].unique(), key=STATE_NAMES.get)
+    # Only offer places with open restaurants: the recommender drops ones Yelp marks closed,
+    # and 61 small towns have nothing else.
+    open_biz = biz[biz["is_open"] == 1]
+    states = sorted(open_biz["state"].unique(), key=STATE_NAMES.get)
     state = st.selectbox("State", states, index=states.index("PA"), format_func=STATE_NAMES.get)
     in_state = biz[biz["state"] == state]
-    city_counts = in_state["city"].value_counts()  # biggest city first, the rest alphabetical
-    cities = [city_counts.index[0]] + sorted(city_counts.index[1:])
-    city = st.selectbox("City", ["All cities"] + cities, index=1)
+    open_in_state = open_biz[open_biz["state"] == state]
+    # Options: one "<metro> area" per metro (covers every town, incl. the small ones), then towns with
+    # at least MIN_TOWN_SIZE open restaurants (biggest first, rest A-Z). Smaller towns are only
+    # reachable through their metro area, since a 2-restaurant town gives meaningless rankings.
+    metro_counts = open_in_state["metro"].value_counts()
+    areas = {f"{m.split(',')[0]} area (all towns)": m for m in metro_counts.index[metro_counts >= MIN_TOWN_SIZE]}
+    city_counts = open_in_state["city"].value_counts()
+    city_counts = city_counts[city_counts >= MIN_TOWN_SIZE]
+    towns = [city_counts.index[0]] + sorted(city_counts.index[1:])
+    choice = st.selectbox("City", list(areas) + towns, index=len(areas))  # default: biggest town
+    place_kind, place = ("metro", areas[choice]) if choice in areas else ("city", choice)
 
     st.subheader("Filters", anchor=False)
     k = st.segmented_control("Results to show", [5, 10, 25, 50], default=10, required=True)
@@ -97,7 +109,7 @@ with st.sidebar:
 st.title("Restaurant Recommender", anchor=False)
 query = st.text_input("What are you craving?", placeholder="e.g. spicy ramen, cozy brunch, cheap tacos")
 
-local = in_state if city == "All cities" else in_state[in_state["city"] == city]
+local = in_state[in_state[place_kind] == place]
 local = local.sort_values("n_reviews", ascending=False)
 labels = dict(zip(local["business_id"], local["name"] + " — " + local["address"].fillna("") + ", " + local["city"]))
 liked = st.multiselect("Places you already like (optional)", list(labels), format_func=labels.get,
@@ -105,7 +117,8 @@ liked = st.multiselect("Places you already like (optional)", list(labels), forma
 
 prefs = Preferences(
     state=state,
-    city=None if city == "All cities" else city,
+    city=place if place_kind == "city" else None,
+    metro=place if place_kind == "metro" else None,
     min_price=PRICES.index(price_lo) + 1,
     max_price=PRICES.index(price_hi) + 1,
     required=[FEATURES[f] for f in required],
@@ -165,7 +178,10 @@ def build_map(results, selected_id):
         row = points[points["business_id"] == selected_id].iloc[0]
         view = pdk.ViewState(latitude=row["lat"], longitude=row["lon"], zoom=15)
     else:
-        view = pdk.data_utils.compute_view(points[["lon", "lat"]].values.tolist(), view_proportion=0.95)
+        # Ignore the 5% farthest outliers, but only when there are enough points
+        # (pydeck keeps floor(0.95 * n) points, which is 0 for a single result).
+        proportion = 0.95 if len(points) >= 20 else 1
+        view = pdk.data_utils.compute_view(points[["lon", "lat"]].values.tolist(), view_proportion=proportion)
         view.zoom = min(view.zoom, 15)
 
     # Plain string props must be quoted ('"pixels"'), or pydeck turns them into data expressions.
